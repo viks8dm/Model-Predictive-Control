@@ -12,8 +12,14 @@ using CppAD::AD;
 size_t N = STEP_SIZE;
 double dt = DT;
 
+
 // This is the length from front to CoG that has a similar radius.
 const double Lf = LF;
+
+// parameters to account for delayed actuation
+//static double prev_a = 0;
+//static double prev_delta = 0;
+
 
 /*********************************************************************
  *********************************************************************/
@@ -35,7 +41,9 @@ class FG_eval {
 public:
     // Fitted polynomial coefficients
     Eigen::VectorXd coeffs;
-    FG_eval(Eigen::VectorXd coeffs) { this->coeffs = coeffs; }
+    FG_eval(Eigen::VectorXd coeffs) {
+      this->coeffs = coeffs;
+    }
 
     typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
     // `fg` is a vector containing the cost and constraints.
@@ -104,8 +112,9 @@ public:
             AD<double> delta0 = vars[delta_start + i];
             AD<double> a0 = vars[a_start + i];
 
-            AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * x0 * x0 + coeffs[3] * x0 * x0* x0;
-            AD<double> psides0 = CppAD::atan(coeffs[1] + 2 * coeffs[2] * x0 + 3* coeffs[3]*x0*x0);            
+            AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2]*x0*x0 + coeffs[3]*x0*x0*x0;
+            AD<double> psides0 = CppAD::atan(coeffs[1]+2*coeffs[2]*x0 + 3 * coeffs[3]*x0*x0);
+
 
             // Here's `x` to get you started.
             // The idea here is to constraint this value to be 0.
@@ -141,7 +150,8 @@ MPC::~MPC() {}
 /*********************************************************************
  *********************************************************************/
 // solver function
-vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
+//vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
+Result MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
     bool ok = true;
     //size_t i;
     typedef CPPAD_TESTVECTOR(double) Dvector;
@@ -201,6 +211,20 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
         vars_upperbound[i] = ACTUATOR_LIMIT;
     }
 
+    // To account for time latency, restrict delta to be previous control
+    for (int i = delta_start; i < delta_start + latency_steps; i++)
+    {
+        vars_lowerbound[i] = prev_delta;
+        vars_upperbound[i] = prev_delta;
+    }
+
+    // To account for time latency, restrict acceleration to be previous control
+    for (int i = a_start; i < a_start + latency_steps; i++)
+    {
+        vars_lowerbound[i] = prev_a;
+        vars_upperbound[i] = prev_a;
+    }
+
     // Lower and upper limits for the constraints
     // Should be 0 besides initial state.
     Dvector constraints_lowerbound(n_constraints);
@@ -237,7 +261,7 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
     options += "Sparse  true        reverse\n";
     // NOTE: Currently the solver has a maximum time limit of 0.5 seconds.
     // Change this as you see fit.
-    //options += "Numeric max_cpu_time          0.5\n";
+    options += "Numeric max_cpu_time          0.5\n";
 
     // place to return solution
     CppAD::ipopt::solve_result<Dvector> solution;
@@ -262,10 +286,27 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) {
 
 
     // latency = 100ms ==> take the actuation at 100ms, index = 100ms/0.05s = 2.
+    /*
     vector<double> result = {solution.x[delta_start+2],   solution.x[a_start+2]};
 
     for(int i=0;i<N;i++){ result.push_back(solution.x[x_start+i]); }
     for(int i=0;i<N;i++){ result.push_back(solution.x[y_start+i]); }
 
-    return result;
+    // assign new values for previous actuation
+    prev_delta = solution.x[delta_start+latency_steps];
+    prev_a = solution.x[a_start+latency_steps];
+
+    //std::cout << "previous values = {" << prev_delta << ", " << prev_a << std::endl;
+    */
+
+    // use Result structure to stroe selected parameters
+    Result  res;
+    for (unsigned int i=0; i < N-1; i++) {
+      res.x.push_back(solution.x[x_start + i]);
+      res.y.push_back(solution.x[y_start + i]);
+      res.delta.push_back(solution.x[delta_start + i]);
+      res.a.push_back(solution.x[a_start + i]);
+    }
+
+    return res;
 }

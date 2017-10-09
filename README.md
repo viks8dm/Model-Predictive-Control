@@ -52,13 +52,20 @@ The cost function mentioned above, is basically summation of quadratic expressio
 
 #### Parameter Tuning
 
-The final parameters used for the project implementation are as listed below, with some comments on why they were given these specific values:
+The final parameters used for the project implementation are as listed below, with some comments on why they were given these specific values.
 
-* time related parameters:
-	* `dt = 0.05`
-		* this value was chosen to account for 100ms latency in the system
-	* `N = 15`
-		* I started with `N=25` but that appeared to give very long curve which used to bounce about and sometimes trace a path that was going out of the road-boundaries, hence I reduced it.
+##### N (timestep length) and dt (elapsed duration between timesteps) values
+
+* `dt = 0.05`
+* `N = 14`
+
+Time horizon `T = N * dt` playes a critical role in the overall performance. A smaller `T` is typically preferred, as it leads to faster control response, but is can cause instability due to sudden and sharpe changes, hence there are trade-offs. Using smaller `dt` values leads to better estimation, however, it needs a lot more computational resource, hence increases the latency, which can lead to slower response, which in turn canreduce the speed that can be achieved by the system as well as increase error over time, leading to failure of control implementation, which can be seen in this [video](./results/MPC_small_dt.mov), where `N` is unchanged but `dt=0.005` is used. Note that the speed achieved while the car is on road is much less than the target of 65mph.
+
+A large `T` typically leads to smoother control (and hence ride), however, the overall system (here the car) will keep drifting away from it's reference path and soon it will be beyond the scope of the controller to reduce the error, leading to car falling off the track, as can be seen in this [video](./results/MPC_large_N.mov), where `dt` is unchanged but `N=30` is used.
+
+
+##### Reference parameters and weights	
+
 * reference values
 	* `REF_CTE = 0` (desired value)
 	* `REF_EPSI = 0` (desired value) 
@@ -70,8 +77,8 @@ The final parameters used for the project implementation are as listed below, wi
 	* `WT_CTE = 5.0`
 	* `WT_EPSI = 10.0`
 	* `WT_V = 0.5`
-	* `WT_DELTA = 60`
-	* `WT_A = 15`
+	* `WT_DELTA = 1.0`
+	* `WT_A = 4.0`
 	* `WT_DELTA_DIFF = 700`
 	* `WT_A_DIFF = 1.0`
 
@@ -81,9 +88,39 @@ A video of the simulated car driving around the track with this final set of par
 
 #### Latency
 
-To account for the 100ms latency in the actuation, the car position estimation is propagated forward by 100ms when the actuation is expected to start (2-time steps here, since dt = 0.05). This is highlighted in the line shown below from `MPC::Solve` function:
+##### `Initial implementation`
+
+In my initial implementation, to account for the 100ms latency in the actuation, the car position estimation was propagated forward by 100ms when the actuation was expected to start (2-time steps here, since dt = 0.05). This was highlighted in the line shown below from `MPC::Solve` function:
 
 `vector<double> result = {solution.x[delta_start+2],   solution.x[a_start+2]};`
+
+##### `revised implementation `
+
+Based on reviewer recommendations, I changed my initial implementation and in the revised version, latency is taken into account by constraining the controls to the values of the previous iteration for the duration of the latency. Thus, I fix the first actuator values in the MPC to values from previous run or from simulator by setting vars_upperbound and lowerbound
+
+`in MPC.cpp`
+
+```
+for (int i = delta_start; i < delta_start + latency_steps; i++)
+    {
+        vars_lowerbound[i] = prev_delta;
+        vars_upperbound[i] = prev_delta;
+    } 
+for (int i = a_start; i < a_start + latency_steps; i++)
+    {
+        vars_lowerbound[i] = prev_a;
+        vars_upperbound[i] = prev_a;
+    }
+```
+
+And, then I read and feed this to the simulator:
+
+`in main.cpp`
+
+```
+double steer_value = - res.delta.at(latency_steps)/STEER_LIMIT_RAD;
+double throttle_value = res.a.at(latency_steps);
+```
 
 
 ## To run the code

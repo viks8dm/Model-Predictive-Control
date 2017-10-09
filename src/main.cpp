@@ -123,10 +123,14 @@ int main() {
           state << 0,0,0, v, cte, epsi;
 
           // solve
-          auto vars = mpc.Solve(state, coeffs);
+          // auto vars = mpc.Solve(state, coeffs);
+          Result res = mpc.Solve(state, coeffs);
 
-          double steer_value = -vars[0]/STEER_LIMIT_RAD;
-          double throttle_value = vars[1];
+          // update actuatprs
+          //double steer_value = -vars[0]/STEER_LIMIT_RAD;
+          //double throttle_value = vars[1];
+          double steer_value = - res.delta.at(latency_steps)/STEER_LIMIT_RAD;
+          double throttle_value = res.a.at(latency_steps);
 
 
           json msgJson;
@@ -136,7 +140,7 @@ int main() {
           msgJson["throttle"] = throttle_value;
 
           //Display the MPC predicted trajectory
-          vector<double> mpc_x_vals;
+          /*vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
 
           //
@@ -152,6 +156,11 @@ int main() {
 
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
+          */
+
+          // Display the MPC predicted trajectory
+          msgJson["mpc_x"] = res.x;
+          msgJson["mpc_y"] = res.y;
 
           //Display the waypoints/reference line
           vector<double> next_x_vals;
@@ -167,6 +176,10 @@ int main() {
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
+
+          // update previous step parameters
+          mpc.prev_delta = res.delta.at(latency_steps);
+          mpc.prev_a = res.a.at(latency_steps);
 
 
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
