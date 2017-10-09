@@ -83,7 +83,7 @@ A large `T` typically leads to smoother control (and hence ride), however, the o
 	* `WT_A_DIFF = 1.0`
 
 
-A video of the simulated car driving around the track with this final set of parameters, can be found [here](./results/MPC.mov).
+A video of the simulated car driving around the track with this final set of parameters, can be found [here](./results/MPC_using_prev_actuation.mov).
 
 
 #### Latency
